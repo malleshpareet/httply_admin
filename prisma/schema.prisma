@@ -1,0 +1,235 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model test {
+  id   String @id @default(cuid())
+  name String
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  banned        Boolean   @default(false)
+  banReason     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  workspaces       Workspace[]       @relation("UserWorkspaces")
+  memberships      WorkspaceMember[]
+  workspaceInvites WorkspaceInvite[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+//
+//______________________Workspace & Membership_________________
+//
+model WorkspaceInvite {
+  id          String    @id @default(cuid())
+  workspaceId String
+  token       String    @unique
+  email       String?
+  expiresAt   DateTime?
+  createdById String
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model Workspace {
+  id          String  @id @default(cuid())
+  name        String
+  ownerId     String
+  owner       User    @relation("UserWorkspaces", fields: [ownerId], references: [id])
+  description String?
+
+  members     WorkspaceMember[]
+  invites     WorkspaceInvite[]
+  collections Collection[]
+
+  environments Environment[]
+  globalVariables Json? @default("[]")
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @default(now())
+  // workspaceInvites WorkspaceInvite[]
+
+  @@unique([name, ownerId])
+}
+
+enum ENVIRONMENT_TYPE {
+  GLOBAL
+  COLLECTION
+}
+
+model Environment {
+  id          String     @id @default(cuid())
+  name        String
+  type        ENVIRONMENT_TYPE @default(GLOBAL)
+  values      Json       // e.g. { "BASE_URL": "https://api.example.com", "AUTH": "Bearer xxx" }
+
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  collectionId String?
+  collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+}
+
+enum MEMBER_ROLE {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model WorkspaceMember {
+  id   String      @id @default(cuid())
+  role MEMBER_ROLE @default(ADMIN)
+
+  userId      String
+  workspaceId String
+
+  user      User      @relation(fields: [userId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  createdAt DateTime @default(now())
+  updateAt  DateTime @default(now())
+
+  @@unique([userId, workspaceId])
+}
+
+//
+//_________________________COLLECTION & REQUESTS___________________________________
+//
+
+model Collection {
+  id   String @id @default(cuid())
+  name String
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  requests    Request[]
+  environments Environment[]
+  variables   Json? @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+enum REST_METHOD {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+}
+
+model Request {
+  id         String      @id @default(cuid())
+  name       String
+  method     REST_METHOD @default(GET)
+  url        String
+  parameters Json?
+  headers    Json? // e.g. 
+  authorization Json?
+
+  preRequestScript String?
+  testScript       String?
+
+  body     Json? // request body (JSON / text)
+  response Json? // optional: save last response
+
+  collectionId String
+  collection   Collection   @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  runs         RequestRun[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model RequestRun {
+  id String @id @default(cuid())
+
+  requestId String
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  status      Int
+  statusText  String?
+  headers     Json?
+  body        String? // raw text or JSON string
+  durationMs  Int?
+  resolvedUrl String? // the actual URL executed after variable resolution
+
+  createdAt DateTime @default(now())
+}
+
+model SystemSettings {
+  id               String   @id @default("global")
+  maintenanceMode  Boolean  @default(false)
+  allowSignups     Boolean  @default(true)
+  enableAIFeatures Boolean  @default(true)
+  requireAdmin2FA  Boolean  @default(false) // default false makes more sense for generic setup
+
+  updatedAt DateTime @default(now()) @updatedAt
+}
